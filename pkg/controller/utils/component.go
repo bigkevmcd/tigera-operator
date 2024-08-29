@@ -490,6 +490,15 @@ func mergeState(desired client.Object, current runtime.Object) client.Object {
 			dsa.ImagePullSecrets = csa.ImagePullSecrets
 		}
 		return dsa
+	case *rbacv1.ClusterRoleBinding:
+		csa := current.(*rbacv1.ClusterRoleBinding)
+		dsa := desired.(*rbacv1.ClusterRoleBinding)
+
+		// This is probably not ideal, it should merge the set of finalizers
+		dsa.Finalizers = csa.Finalizers
+
+		return dsa
+
 	case *esv1.Elasticsearch:
 		// Only update if the spec has changed
 		csa := current.(*esv1.Elasticsearch)
