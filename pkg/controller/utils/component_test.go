@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	v3 "github.com/tigera/api/pkg/apis/projectcalico/v3"
@@ -345,6 +346,47 @@ var _ = Describe("Component handler tests", func() {
 		err = c.Get(ctx, nsKey, ns)
 		Expect(err).To(BeNil())
 		Expect(ns.GetAnnotations()).To(Equal(expectedAnnotations))
+	})
+
+	It("merges finalizers", func() {
+		originalCRB := &rbacv1.ClusterRoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "my-clusterrolebinding",
+				Finalizers: []string{render.CNIFinalizer},
+			},
+			RoleRef: rbacv1.RoleRef{
+				Kind: "Role",
+				Name: "old-roleref",
+			},
+		}
+		crb := originalCRB.DeepCopy()
+		fc := &fakeComponent{
+			supportedOSType: rmeta.OSTypeLinux,
+			objs:            []client.Object{crb},
+		}
+
+		err := handler.CreateOrUpdateOrDelete(ctx, fc, sm)
+		Expect(err).To(BeNil())
+
+		By("checking that the crb is created and desired annotations is present")
+		expectedFinalizers := []string{render.CNIFinalizer}
+		// reload the CRB
+		_ = c.Get(ctx, client.ObjectKeyFromObject(crb), crb)
+		Expect(crb.GetFinalizers()).To(Equal(expectedFinalizers))
+
+		controllerutil.AddFinalizer(crb, "test-finalizer")
+		Expect(c.Update(ctx, crb)).To(Succeed())
+
+		newCRB := originalCRB.DeepCopy()
+
+		fc = &fakeComponent{
+			supportedOSType: rmeta.OSTypeLinux,
+			objs:            []client.Object{newCRB},
+		}
+		Expect(handler.CreateOrUpdateOrDelete(ctx, fc, sm)).To(Succeed())
+		expectedFinalizers = []string{render.CNIFinalizer, "test-finalizer"}
+		_ = c.Get(ctx, client.ObjectKeyFromObject(newCRB), newCRB)
+		Expect(newCRB.GetFinalizers()).To(Equal(expectedFinalizers))
 	})
 
 	It("merges UISettings leaving owners unchanged", func() {
